@@ -2,6 +2,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     path::Path,
+    process::Command,
 };
 
 use cargo_lock::Lockfile;
@@ -52,6 +53,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .opt_value_from_str(["-l", "--lockfile"])?
             .unwrap_or_else(|| "Cargo.lock".into()),
     };
+
+    Command::new("cargo")
+        .arg("fetch")
+        .arg("--manifest-path")
+        .arg(&args.manifest_path)
+        .status()
+        .expect("failed to run `cargo fetch`");
 
     let mut rules = File::create("build.ninja")?;
     writeln!(rules, "{}", DEFAULT_RULES)?;
