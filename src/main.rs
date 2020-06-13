@@ -3,6 +3,8 @@ use std::{
     io::{Read, Write},
     path::Path,
     process::Command,
+    convert::TryFrom,
+    fmt,
 };
 
 use cargo_lock::Lockfile;
@@ -27,12 +29,53 @@ build Cargo.lock: cargo-fetch Cargo.toml
 
 const REGISTRY_PATH: &str = "/Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823";
 
+struct Error(String);
+
+impl Error {
+    fn new<S: Into<String>>(msg: S) -> Error {
+        Error(msg.into())
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Error: {}", self.0)
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for Error { }
+
+enum Task {
+    Build,
+    Create
+}
+
+impl TryFrom<&str> for Task {
+    type Error = Error;
+
+    fn try_from(cmd: &str) -> Result<Task, Error> {
+        match cmd {
+            "build" => Ok(Task::Build),
+            "create" => Ok(Task::Create),
+            _ => Err(Error::new(format!("invalid command: {:?}", cmd)))
+        }
+    }
+
+}
+
 #[derive(Debug)]
 struct Args {
     help: bool,
     version: bool,
     manifest_path: String,
     lockfile: String,
+    command: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,6 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         lockfile: args
             .opt_value_from_str(["-l", "--lockfile"])?
             .unwrap_or_else(|| "Cargo.lock".into()),
+        command: args.subcommand()?.unwrap_or_else(|| "".into()),
     };
 
     if args.version {
@@ -62,6 +106,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.help {
         usage();
         return Ok(())
+    }
+
+    match Task::try_from(&*args.command) {
+        Ok(Task::Create) => {},
+        Ok(Task::Build) => {},
+        Err(e) => {
+            return Err(e)?;
+        }
     }
 
     Command::new("cargo")
