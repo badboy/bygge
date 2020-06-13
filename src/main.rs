@@ -74,6 +74,7 @@ struct Args {
     version: bool,
     manifest_path: String,
     lockfile: String,
+    ninja_file: String,
     command: String,
 }
 
@@ -82,18 +83,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Arguments can be parsed in any order.
     let args = Args {
-        // You can use a slice for multiple commands
         help: args.contains(["-h", "--help"]),
-        // or just a string for a single one.
         version: args.contains(["-v", "--version"]),
-        // Path to Cargo.toml
         manifest_path: args
             .opt_value_from_str(["-p", "--manifest-path"])?
             .unwrap_or_else(|| "Cargo.toml".into()),
-        // Path to Cargo.lock
         lockfile: args
             .opt_value_from_str(["-l", "--lockfile"])?
             .unwrap_or_else(|| "Cargo.lock".into()),
+        ninja_file: args
+            .opt_value_from_str(["-n", "--ninjafile"])?
+            .unwrap_or_else(|| "build.ninja".into()),
         command: args.subcommand()?.unwrap_or_else(|| "".into()),
     };
 
@@ -128,7 +128,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .status()
         .expect("failed to run `cargo fetch`");
 
-    let mut rules = File::create("build.ninja")?;
+    let mut rules = File::create(&args.ninja_file)?;
     writeln!(rules, "{}", DEFAULT_RULES)?;
 
     let lockfile = Lockfile::load(&args.lockfile)?;
@@ -270,6 +270,8 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
 fn build(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     Command::new("ninja")
+        .arg("-f")
+        .arg(args.ninja_file)
         .status()
         .expect("failed to run `ninja`");
 
@@ -298,8 +300,9 @@ USAGE:
     bygge [OPTIONS] [SUBCOMMAND]
 
 OPTIONS:
-    -p, --manifest-path  Path to Cargo.toml. [default: ./Cargo.toml]
-    -l, --lockfile-path  Path to Cargo.lock. [default: ./Cargo.lock]
+    -p, --manifest-path  Path to Cargo.toml. [default: Cargo.toml]
+    -l, --lockfile       Path to Cargo.lock. [default: Cargo.lock]
+    -n, --ninjafile      Path to build file [default: build.ninja]
     -h, --help           Print this help and exit.
     -v, --version        Print version info and exit
 
