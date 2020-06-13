@@ -246,7 +246,11 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn build(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    command(args.verbose, &["ninja", "-f", &args.ninja_file])?;
+    let mut cmd = vec!["ninja", "-f", &args.ninja_file];
+    if args.verbose {
+        cmd.push("--verbose");
+    }
+    command(args.verbose, &cmd)?;
 
     Ok(())
 }
