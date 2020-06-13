@@ -7,7 +7,7 @@ use std::{
     process::{self, Command},
 };
 
-use cargo_lock::Lockfile;
+use cargo_lock::{Dependency, Lockfile};
 use cargo_toml::Manifest;
 use petgraph::visit::Bfs;
 
@@ -124,7 +124,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     println!("==> Creating build file: {}", args.ninja_file);
-    command(args.verbose, &["cargo", "fetch", "--manifest-path", &args.manifest_path])?;
+    command(
+        args.verbose,
+        &["cargo", "fetch", "--manifest-path", &args.manifest_path],
+    )?;
 
     let mut rules = File::create(&args.ninja_file)?;
     writeln!(rules, "{}", DEFAULT_RULES)?;
@@ -161,48 +164,29 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let pkg_name = node.name.as_str();
         let norm_pkg_name = normalize_crate_name(pkg_name);
 
+        // The main target we try to build.
         if nx == root_idx {
-            write!(
-                rules,
-                "build build/{}: rustc src/main.rs | Cargo.lock ",
-                norm_pkg_name
+            build_rule(
+                &rules,
+                pkg_name,
+                &format!("build/{}", norm_pkg_name),
+                &["src/main.rs"],
+                &[&args.lockfile],
+                "build",
+                "bin",
+                "2018",
+                "dep-info,link",
+                &node.dependencies,
             )?;
-            for dep in &node.dependencies {
-                write!(
-                    rules,
-                    "build/deps/lib{}.rlib ",
-                    normalize_crate_name(dep.name.as_str())
-                )?;
-            }
-
-            writeln!(rules)?;
-            writeln!(rules, "  name = {} ", norm_pkg_name)?;
-            write!(
-                rules,
-                "  args = --crate-type bin --edition 2018 -L dependency=build/deps "
-            )?;
-            for dep in &node.dependencies {
-                if skip_dep(dep.name.as_str()) {
-                    continue;
-                }
-                write!(
-                    rules,
-                    "--extern {}=build/deps/lib{}.rlib ",
-                    normalize_crate_name(dep.name.as_str()),
-                    normalize_crate_name(dep.name.as_str())
-                )?;
-            }
-            writeln!(rules)?;
-            writeln!(rules, "  outdir = build/")?;
-            writeln!(rules, "  emit = dep-info,link")?;
-            writeln!(rules, "  depfile = build/{}.d", norm_pkg_name)?;
-            writeln!(rules)?;
 
             writeln!(rules, "default build/{}", norm_pkg_name)?;
         } else {
+            // All the dependencies
+
             if skip_dep(pkg_name) {
                 continue;
             }
+
             let crate_path = Path::new(REGISTRY_PATH).join(&format!(
                 "{pkg}-{version}",
                 pkg = pkg_name,
@@ -218,53 +202,23 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 .and_then(|lib| lib.path)
                 .unwrap_or_else(|| "src/lib.rs".into());
             let entry_path = crate_path.join(entry);
+            let entry_path = entry_path.display().to_string();
 
-            write!(
-                rules,
-                "build build/deps/lib{pkg}.rlib build/deps/lib{pkg}.rmeta: rustc {entry_path} | ",
-                pkg = norm_pkg_name,
-                entry_path = entry_path.display()
+            build_rule(
+                &rules,
+                pkg_name,
+                &format!(
+                    "build/deps/lib{pkg}.rlib build/deps/lib{pkg}.rmeta",
+                    pkg = norm_pkg_name
+                ),
+                &[&entry_path],
+                &[],
+                "build/deps",
+                "lib",
+                &edition(manifest.package.unwrap().edition),
+                "dep-info,metadata,link",
+                &node.dependencies,
             )?;
-            for dep in &node.dependencies {
-                if skip_dep(dep.name.as_str()) {
-                    continue;
-                }
-                write!(
-                    rules,
-                    "build/deps/lib{}.rlib ",
-                    normalize_crate_name(dep.name.as_str()),
-                )?;
-            }
-            writeln!(rules)?;
-            writeln!(rules, "  name = {} ", norm_pkg_name)?;
-            write!(rules, "  args = --crate-type lib -L dependency=build/deps ")?;
-            write!(
-                rules,
-                "--edition {} ",
-                edition(manifest.package.unwrap().edition)
-            )?;
-            if norm_pkg_name == "libc" {
-                write!(
-                    rules,
-                    r#"--cfg 'feature="default"' --cfg 'feature="extra_traits"' --cfg 'feature="std"' --cfg freebsd11 --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
-                )?;
-            }
-            for dep in &node.dependencies {
-                if skip_dep(dep.name.as_str()) {
-                    continue;
-                }
-                write!(
-                    rules,
-                    "--extern {}=build/deps/lib{}.rmeta ",
-                    normalize_crate_name(dep.name.as_str()),
-                    normalize_crate_name(dep.name.as_str())
-                )?;
-            }
-            writeln!(rules)?;
-            writeln!(rules, "  outdir = build/deps/")?;
-            writeln!(rules, "  emit = dep-info,metadata,link")?;
-            writeln!(rules, "  depfile = build/deps/{}.d", norm_pkg_name)?;
-            writeln!(rules)?;
         }
     }
 
@@ -297,6 +251,76 @@ fn command(verbose: bool, cmdline: &[&str]) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+fn build_rule<W: Write>(
+    mut out: W,
+    pkg_name: &str,
+    target: &str,
+    deps: &[&str],
+    implicit_deps: &[&str],
+    outdir: &str,
+    crate_type: &str,
+    edition: &str,
+    emit: &str,
+    dependencies: &[Dependency],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let norm_pkg_name = normalize_crate_name(pkg_name);
+
+    write!(
+        out,
+        "build {}: rustc {} | {} ",
+        target,
+        deps.join(" "),
+        implicit_deps.join(" ")
+    )?;
+
+    for dep in dependencies {
+        if skip_dep(dep.name.as_str()) {
+            continue;
+        }
+        write!(
+            out,
+            "build/deps/lib{}.rlib ",
+            normalize_crate_name(dep.name.as_str())
+        )?;
+    }
+
+    writeln!(out)?;
+    writeln!(out, "  name = {} ", norm_pkg_name)?;
+    write!(
+        out,
+        "  args = --crate-type {} --edition {} -L dependency=build/deps ",
+        crate_type, edition,
+    )?;
+
+    // We don't handle features yet,
+    // so let's hackily add some features to make libc compiled correctly.
+    if norm_pkg_name == "libc" {
+        write!(
+            out,
+            r#"--cfg 'feature="default"' --cfg 'feature="extra_traits"' --cfg 'feature="std"' --cfg freebsd11 --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
+        )?;
+    }
+
+    for dep in dependencies {
+        if skip_dep(dep.name.as_str()) {
+            continue;
+        }
+        write!(
+            out,
+            "--extern {}=build/deps/lib{}.rlib ",
+            normalize_crate_name(dep.name.as_str()),
+            normalize_crate_name(dep.name.as_str())
+        )?;
+    }
+    writeln!(out)?;
+    writeln!(out, "  outdir = {}", outdir)?;
+    writeln!(out, "  emit = {}", emit)?;
+    writeln!(out, "  depfile = {}/{}.d", outdir, norm_pkg_name)?;
+    writeln!(out)?;
+
+    Ok(())
+}
+
 fn normalize_crate_name(crate_name: &str) -> String {
     crate_name.replace('-', "_")
 }
@@ -310,6 +334,7 @@ fn edition(ed: cargo_toml::Edition) -> &'static str {
 }
 
 fn skip_dep(name: &str) -> bool {
+    // Skipping some crates we know we can't build
     name.contains("winapi") || name.contains("redox")
 }
 
