@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // You can use a slice for multiple commands
         help: args.contains(["-h", "--help"]),
         // or just a string for a single one.
-        version: args.contains("-V"),
+        version: args.contains(["-v", "--version"]),
         // Path to Cargo.toml
         manifest_path: args
             .opt_value_from_str(["-p", "--manifest-path"])?
@@ -53,6 +53,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .opt_value_from_str(["-l", "--lockfile"])?
             .unwrap_or_else(|| "Cargo.lock".into()),
     };
+
+    if args.version {
+        println!("bygge v{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if args.help {
+        usage();
+        return Ok(())
+    }
 
     Command::new("cargo")
         .arg("fetch")
@@ -215,4 +225,24 @@ fn edition(ed: cargo_toml::Edition) -> &'static str {
 
 fn skip_dep(name: &str) -> bool {
     name.contains("winapi") || name.contains("redox")
+}
+
+fn usage() {
+    const USAGE: &str = r#"
+USAGE:
+    bygge [OPTIONS] [SUBCOMMAND]
+
+OPTIONS:
+    -p, --manifest-path  Path to Cargo.toml. [default: ./Cargo.toml]
+    -l, --lockfile-path  Path to Cargo.lock. [default: ./Cargo.lock]
+    -h, --help           Print this help and exit.
+    -v, --version        Print version info and exit
+
+Available subcommands:
+    build    Run the ninja build.
+    create   Create the ninja configuration.
+"#;
+
+    println!("bygge v{}", env!("CARGO_PKG_VERSION"));
+    println!("{}", USAGE);
 }
