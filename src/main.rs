@@ -72,6 +72,7 @@ impl TryFrom<&str> for Task {
 struct Args {
     help: bool,
     version: bool,
+    verbose: bool,
     manifest_path: String,
     lockfile: String,
     ninja_file: String,
@@ -84,7 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Arguments can be parsed in any order.
     let args = Args {
         help: args.contains(["-h", "--help"]),
-        version: args.contains(["-v", "--version"]),
+        version: args.contains(["-V", "--version"]),
+        verbose: args.contains(["-v", "--verbose"]),
         manifest_path: args
             .opt_value_from_str(["-p", "--manifest-path"])?
             .unwrap_or_else(|| "Cargo.toml".into()),
@@ -121,12 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    Command::new("cargo")
-        .arg("fetch")
-        .arg("--manifest-path")
-        .arg(&args.manifest_path)
-        .status()
-        .expect("failed to run `cargo fetch`");
+    println!("==> Creating build file: {}", args.ninja_file);
+    command(args.verbose, &["cargo", "fetch", "--manifest-path", &args.manifest_path])?;
 
     let mut rules = File::create(&args.ninja_file)?;
     writeln!(rules, "{}", DEFAULT_RULES)?;
@@ -136,12 +134,17 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let manifest = Manifest::from_path(&args.manifest_path)?;
     let package = manifest.package.unwrap();
     let pkg_name = package.name;
+    println!("==> Package: {}", pkg_name);
 
     let root_package = lockfile
         .packages
         .iter()
         .find(|pkg| pkg.name.as_str() == pkg_name)
         .unwrap();
+
+    if args.verbose {
+        println!("==> Detected {} dependencies.", lockfile.packages.len());
+    }
 
     let tree = lockfile.dependency_tree()?;
     let nodes = tree.nodes();
@@ -269,11 +272,27 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn build(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    Command::new("ninja")
-        .arg("-f")
-        .arg(args.ninja_file)
+    command(args.verbose, &["ninja", "-f", &args.ninja_file])?;
+
+    Ok(())
+}
+
+fn command(verbose: bool, cmdline: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    if verbose {
+        println!("==> Running: {}", cmdline.join(" "));
+    }
+
+    Command::new(cmdline[0])
+        .args(&cmdline[1..])
         .status()
-        .expect("failed to run `ninja`");
+        .map_err(|_| Error::new(format!("failed to run `{}`", cmdline[0])))
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(Error::new(format!("`{}` failed.", cmdline[0])))
+            }
+        })?;
 
     Ok(())
 }
@@ -300,11 +319,12 @@ USAGE:
     bygge [OPTIONS] [SUBCOMMAND]
 
 OPTIONS:
-    -p, --manifest-path  Path to Cargo.toml. [default: Cargo.toml]
-    -l, --lockfile       Path to Cargo.lock. [default: Cargo.lock]
+    -p, --manifest-path  Path to Cargo.toml [default: Cargo.toml]
+    -l, --lockfile       Path to Cargo.lock [default: Cargo.lock]
     -n, --ninjafile      Path to build file [default: build.ninja]
+    -v, --verbose        Enable verbose output
     -h, --help           Print this help and exit.
-    -v, --version        Print version info and exit
+    -V, --version        Print version info and exit
 
 Available subcommands:
     build    Run the ninja build.
