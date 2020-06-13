@@ -1,0 +1,21 @@
+rule cargo-fetch
+  command = cargo fetch --manifest-path $in && touch $out
+  description = CARGO $in
+
+rule rustc
+  command = rustc --emit=dep-info,link $args $in --out-dir $outdir && sed -i.bak '/\.d:/g' $depfile
+  description = RUSTC $out
+  depfile = $depfile
+  deps = gcc
+
+build build/bygge: rustc src/main.rs | Cargo.lock build/deps/libpico_args.rlib
+  args = --crate-name bygge --extern pico_args=build/deps/libpico_args.rlib
+  outdir = build/
+  depfile = build/bygge.d
+
+build build/deps/libpico_args.rlib: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/pico-args-0.3.1/src/lib.rs
+  args = --crate-name pico_args --edition=2018 --crate-type lib
+  outdir = build/deps
+  depfile = build/deps/pico_args.d
+
+build Cargo.lock: cargo-fetch Cargo.toml
