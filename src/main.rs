@@ -16,7 +16,7 @@ rule cargo-fetch
   description = CARGO $in
 
 rule rustc
-  command = rustc --crate-name $name $in --emit=$emit --out-dir $outdir $extraargs $args && sed -i'' '/\.d:/g' $depfile
+  command = rustc --crate-name $name $in --emit=$emit --out-dir $outdir $extraargs $args && sed -i '' '/\.d:/g' $depfile
   description = RUSTC $out
   depfile = $depfile
   deps = gcc
@@ -99,7 +99,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             writeln!(rules)?;
             writeln!(rules, "  name = {} ", norm_pkg_name)?;
-            write!(rules, "  args = --crate-type bin --edition 2018 -L dependency=build/deps ")?;
+            write!(
+                rules,
+                "  args = --crate-type bin --edition 2018 -L dependency=build/deps "
+            )?;
             for dep in &node.dependencies {
                 if skip_dep(dep.name.as_str()) {
                     continue;
@@ -163,7 +166,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 edition(manifest.package.unwrap().edition)
             )?;
             if norm_pkg_name == "libc" {
-                write!(rules, r#"--cfg 'feature="default"' --cfg 'feature="extra_traits"' --cfg 'feature="std"' --cfg freebsd11 --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#)?;
+                write!(
+                    rules,
+                    r#"--cfg 'feature="default"' --cfg 'feature="extra_traits"' --cfg 'feature="std"' --cfg freebsd11 --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
+                )?;
             }
             for dep in &node.dependencies {
                 if skip_dep(dep.name.as_str()) {
