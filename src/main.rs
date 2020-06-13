@@ -359,6 +359,30 @@ fn build_rule<W: Write>(
         )?;
     }
 
+    if norm_pkg_name == "syn" {
+        write!(out, r#"--cfg 'feature="clone-impls"' --cfg 'feature="default"' --cfg 'feature="derive"' --cfg 'feature="parsing"' --cfg 'feature="printing"' --cfg 'feature="proc-macro"' --cfg 'feature="quote"' --cfg 'feature="visit"' "#)?;
+    }
+
+    if norm_pkg_name == "indexmap" {
+        write!(out, "--cfg has_std ")?;
+    }
+
+    if norm_pkg_name == "proc_macro2" {
+        write!(out, "--cfg use_proc_macro --cfg wrap_proc_macro ")?;
+    }
+
+    if norm_pkg_name == "cargo_lock" {
+        write!(out, r#"--cfg 'feature="dependency-tree"' --cfg 'feature="petgraph"' "#)?;
+    }
+
+    if norm_pkg_name == "serde" {
+        write!(out, r#"--cfg 'feature="serde_derive"' --cfg ops_bound --cfg core_reverse --cfg de_boxed_c_str --cfg de_boxed_path --cfg de_rc_dst --cfg core_duration --cfg integer128 --cfg range_inclusive --cfg num_nonzero --cfg core_try_from --cfg num_nonzero_signed --cfg std_atomic64 --cfg std_atomic "#)?;
+    }
+
+    if norm_pkg_name == "semver" {
+        write!(out, r#"--cfg 'feature="serde"' "#)?;
+    }
+
     for dep in dependencies {
         if skip_dep(dep.name.as_str()) {
             continue;
