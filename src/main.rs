@@ -342,8 +342,8 @@ fn build_rule<W: Write>(
     }
 
     writeln!(out)?;
-    writeln!(out, "  name = {} ", norm_pkg_name)?;
-    writeln!(out, "  version = {} ", version)?;
+    writeln!(out, "  name = {}", norm_pkg_name)?;
+    writeln!(out, "  version = {}", version)?;
     write!(
         out,
         "  args = --crate-type {} --edition {} -L dependency=build/deps ",
