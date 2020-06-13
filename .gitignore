@@ -1,2 +1,4 @@
 /target
 /build
+.ninja*
+build.ninja
