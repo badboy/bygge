@@ -1,10 +1,10 @@
 use std::{
+    convert::TryFrom,
+    fmt,
     fs::File,
     io::{Read, Write},
     path::Path,
-    process::Command,
-    convert::TryFrom,
-    fmt,
+    process::{self, Command},
 };
 
 use cargo_lock::Lockfile;
@@ -49,11 +49,11 @@ impl fmt::Debug for Error {
     }
 }
 
-impl std::error::Error for Error { }
+impl std::error::Error for Error {}
 
 enum Task {
     Build,
-    Create
+    Create,
 }
 
 impl TryFrom<&str> for Task {
@@ -63,10 +63,9 @@ impl TryFrom<&str> for Task {
         match cmd {
             "build" => Ok(Task::Build),
             "create" => Ok(Task::Create),
-            _ => Err(Error::new(format!("invalid command: {:?}", cmd)))
+            _ => Err(Error::new(format!("invalid command: {:?}", cmd))),
         }
     }
-
 }
 
 #[derive(Debug)]
@@ -105,17 +104,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.help {
         usage();
-        return Ok(())
+        return Ok(());
     }
 
     match Task::try_from(&*args.command) {
-        Ok(Task::Create) => {},
-        Ok(Task::Build) => {},
+        Ok(Task::Create) => create(args)?,
+        Ok(Task::Build) => build(args)?,
         Err(e) => {
-            return Err(e)?;
+            println!("{}\n", e);
+            usage();
+            process::exit(1);
         }
     }
 
+    Ok(())
+}
+
+fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     Command::new("cargo")
         .arg("fetch")
         .arg("--manifest-path")
@@ -259,6 +264,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             writeln!(rules)?;
         }
     }
+
+    Ok(())
+}
+
+fn build(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    Command::new("ninja")
+        .status()
+        .expect("failed to run `ninja`");
 
     Ok(())
 }
