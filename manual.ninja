@@ -8,8 +8,8 @@ rule rustc
   depfile = $depfile
   deps = gcc
 
-build build/bygge: rustc src/main.rs | Cargo.lock build/deps/libpico_args.rlib
-  args = --crate-name bygge --extern pico_args=build/deps/libpico_args.rlib
+build build/bygge: rustc src/main.rs | Cargo.lock build/deps/libpico_args.rlib build/deps/libcargo_lock.rlib
+  args = --crate-name bygge --extern pico_args=build/deps/libpico_args.rlib --extern cargo_lock=build/deps/libcargo_lock.rlib
   outdir = build/
   depfile = build/bygge.d
 
