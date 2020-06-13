@@ -40,7 +40,7 @@ rule cargo-fetch
   description = CARGO $in
 
 rule rustc
-  command = rustc --crate-name $name $in --emit=$emit --out-dir $outdir $extraargs $args && sed -i '' '/\.d:/g' $depfile
+  command = CARGO_PKG_VERSION="$version" CARGO_PKG_NAME="$name" rustc --crate-name $name $in --emit=$emit --out-dir $outdir $extraargs $args && sed -i '' '/\.d:/g' $depfile
   description = RUSTC $out
   depfile = $depfile
   deps = gcc
@@ -206,12 +206,14 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let node = &graph[nx];
         let pkg_name = node.name.as_str();
         let norm_pkg_name = normalize_crate_name(pkg_name);
+        let version = format!("{}", node.version);
 
         // The main target we try to build.
         if nx == root_idx {
             build_rule(
                 &rules,
                 pkg_name,
+                &version,
                 &format!("build/{}", norm_pkg_name),
                 &["src/main.rs"],
                 &[&args.lockfile],
@@ -233,31 +235,38 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let crate_path = registry_path()?.join(&format!(
                 "{pkg}-{version}",
                 pkg = pkg_name,
-                version = node.version
+                version = version,
             ));
             let toml_path = crate_path.join("Cargo.toml");
             let mut f = File::open(&toml_path)?;
             let mut buffer = Vec::new();
             f.read_to_end(&mut buffer)?;
             let manifest = Manifest::from_slice(&buffer)?;
-            let entry = manifest
+            let (entry, proc_macro) = manifest
                 .lib
-                .and_then(|lib| lib.path)
-                .unwrap_or_else(|| "src/lib.rs".into());
+                .map(|lib| (lib.path.unwrap_or_else(|| "src/lib.rs".into()), lib.proc_macro))
+                .unwrap_or_else(|| ("src/lib.rs".into(), false));
             let entry_path = crate_path.join(entry);
             let entry_path = entry_path.display().to_string();
+            let (crate_type, suffix) = if proc_macro {
+                ("proc-macro", "dylib")
+            } else {
+                ("lib", "rlib")
+            };
 
             build_rule(
                 &rules,
                 pkg_name,
+                &version,
                 &format!(
-                    "build/deps/lib{pkg}.rlib build/deps/lib{pkg}.rmeta",
-                    pkg = norm_pkg_name
+                    "build/deps/lib{pkg}.{suffix} build/deps/lib{pkg}.rmeta",
+                    pkg = norm_pkg_name,
+                    suffix = suffix,
                 ),
                 &[&entry_path],
                 &[],
                 "build/deps",
-                "lib",
+                &crate_type,
                 &edition(manifest.package.unwrap().edition),
                 "dep-info,metadata,link",
                 &node.dependencies,
@@ -299,6 +308,7 @@ fn command(verbose: bool, cmdline: &[&str]) -> Result<(), Box<dyn std::error::Er
 fn build_rule<W: Write>(
     mut out: W,
     pkg_name: &str,
+    version: &str,
     target: &str,
     deps: &[&str],
     implicit_deps: &[&str],
@@ -322,15 +332,18 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
+        let suffix = if dep.name.as_str() == "serde_derive" { "dylib" } else { "rlib" };
         write!(
             out,
-            "build/deps/lib{}.rlib ",
-            normalize_crate_name(dep.name.as_str())
+            "build/deps/lib{}.{} ",
+            normalize_crate_name(dep.name.as_str()),
+            suffix
         )?;
     }
 
     writeln!(out)?;
     writeln!(out, "  name = {} ", norm_pkg_name)?;
+    writeln!(out, "  version = {} ", version)?;
     write!(
         out,
         "  args = --crate-type {} --edition {} -L dependency=build/deps ",
@@ -350,11 +363,13 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
+        let suffix = if dep.name.as_str() == "serde_derive" { "dylib" } else { "rlib" };
         write!(
             out,
-            "--extern {}=build/deps/lib{}.rlib ",
+            "--extern {}=build/deps/lib{}.{} ",
             normalize_crate_name(dep.name.as_str()),
-            normalize_crate_name(dep.name.as_str())
+            normalize_crate_name(dep.name.as_str()),
+            suffix,
         )?;
     }
     writeln!(out)?;
