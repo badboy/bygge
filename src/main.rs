@@ -433,7 +433,7 @@ OPTIONS:
     -n, --ninjafile      Path to build file [default: build.ninja]
     -r, --release        Build artifacts in release mode, with optimizations
     -v, --verbose        Enable verbose output
-    -h, --help           Print this help and exit.
+    -h, --help           Print this help and exit
     -V, --version        Print version info and exit
 
 Available subcommands:
@@ -441,6 +441,6 @@ Available subcommands:
     create   Create the ninja configuration.
 "#;
 
-    println!("bygge v{}", env!("CARGO_PKG_VERSION"));
+    println!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
     println!("{}", USAGE);
 }
