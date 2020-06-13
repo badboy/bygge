@@ -3,7 +3,7 @@ use std::{
     fmt,
     fs::File,
     io::{Read, Write},
-    path::Path,
+    path::PathBuf,
     process::{self, Command},
 };
 
@@ -26,8 +26,6 @@ rule rustc
 
 build Cargo.lock: cargo-fetch Cargo.toml
 "#;
-
-const REGISTRY_PATH: &str = "/Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823";
 
 struct Error(String);
 
@@ -122,6 +120,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn registry_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    const REGISTRY_PATH: &str = ".cargo/registry/src/github.com-1ecc6299db9ec823";
+
+    match dirs::home_dir() {
+        Some(home) => Ok(home.join(REGISTRY_PATH)),
+        None => Err(Error::new("Can't get home directory"))?
+    }
+}
+
 fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     println!("==> Creating build file: {}", args.ninja_file);
     command(
@@ -187,7 +194,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
 
-            let crate_path = Path::new(REGISTRY_PATH).join(&format!(
+            let crate_path = registry_path()?.join(&format!(
                 "{pkg}-{version}",
                 pkg = pkg_name,
                 version = node.version
