@@ -139,7 +139,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rules = File::create(&args.ninja_file)?;
     writeln!(rules, "{}", PREAMBLE)?;
-    write!(rules, "extraargs = --cap-lints allow -C debuginfo=2")?;
+    write!(rules, r#"extraargs = --cap-lints allow -C debuginfo=2 --cfg 'feature="default"' --cfg 'feature="std"'"#)?;
     if args.release {
         if args.verbose {
             println!("==> Enabling optimizations for build artifacts")
