@@ -4,10 +4,10 @@ What if you could build a Rust project without Cargo[^1]?
 Bygge can.
 
 > **bygge** [v]. (Danish, Norwegian Bokmål)
-> 
-> 1. to build, construct, 
+>
+> 1. to build, construct,
 > 2. to craft
-> 
+>
 > (via [Wiktionary])
 
 [^1]: `bygge` still requires cargo for fetching dependencies.
@@ -52,7 +52,7 @@ Cargo is a full-fledged build system, aware of different build targets, allowing
 ## Build `bygge`
 
 `bygge` can create a Ninja build configuration to build itself.
-But first you need a compiled `bygge`. 
+But first you need a compiled `bygge`.
 Use the bundled pre-generated configuration for that:
 
 ```
@@ -65,6 +65,12 @@ Then create the default build configuration and build:
 build/bygge create
 build/bygge build
 ```
+
+## License
+
+bygge is distributed under the terms of both the MIT license and the Apache License (Version 2.0).
+
+See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
 
 [Rust]: https://www.rust-lang.org/
 [ninja]: https://ninja-build.org/
