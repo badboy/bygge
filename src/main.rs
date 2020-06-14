@@ -420,7 +420,16 @@ fn edition(ed: cargo_toml::Edition) -> &'static str {
 
 fn crate_type_suffix(crate_type: &str) -> &'static str {
     match crate_type {
-        "proc-macro" => "dylib",
+        "proc-macro" => {
+            if cfg!(target_os = "macos") {
+                "dylib"
+            } else if cfg!(target_os = "windows") {
+                "dll"
+            } else {
+                // Fallback (and default for Unix)
+                "so"
+            }
+        }
         _ => "rlib",
     }
 }
