@@ -249,10 +249,10 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|| ("src/lib.rs".into(), false));
             let entry_path = crate_path.join(entry);
             let entry_path = entry_path.display().to_string();
-            let (crate_type, suffix) = if proc_macro {
-                ("proc-macro", "dylib")
+            let crate_type = if proc_macro {
+                "proc-macro"
             } else {
-                ("lib", "rlib")
+                "lib"
             };
 
             build_rule(
@@ -262,7 +262,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &format!(
                     "$builddir/deps/lib{pkg}.{suffix} $builddir/deps/lib{pkg}.rmeta",
                     pkg = norm_pkg_name,
-                    suffix = suffix,
+                    suffix = crate_type_suffix(crate_type),
                 ),
                 &[&entry_path],
                 &[],
@@ -333,12 +333,12 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let suffix = if dep.name.as_str() == "serde_derive" { "dylib" } else { "rlib" };
+        let dep_type = if dep.name.as_str() == "serde_derive" { "proc-macro" } else { "lib" };
         write!(
             out,
             "$builddir/deps/lib{}.{} ",
             normalize_crate_name(dep.name.as_str()),
-            suffix
+            crate_type_suffix(dep_type)
         )?;
     }
 
@@ -388,13 +388,13 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let suffix = if dep.name.as_str() == "serde_derive" { "dylib" } else { "rlib" };
+        let dep_type = if dep.name.as_str() == "serde_derive" { "proc-macro" } else { "lib" };
         write!(
             out,
             "--extern {}=$builddir/deps/lib{}.{} ",
             normalize_crate_name(dep.name.as_str()),
             normalize_crate_name(dep.name.as_str()),
-            suffix,
+            crate_type_suffix(dep_type),
         )?;
     }
     writeln!(out)?;
@@ -415,6 +415,13 @@ fn edition(ed: cargo_toml::Edition) -> &'static str {
     match ed {
         E2018 => "2018",
         _ => "2015",
+    }
+}
+
+fn crate_type_suffix(crate_type: &str) -> &'static str {
+    match crate_type {
+        "proc-macro" => "dylib",
+        _ => "rlib",
     }
 }
 
