@@ -161,6 +161,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rules = File::create(&args.ninja_file)?;
     writeln!(rules, "{}", PREAMBLE)?;
+    writeln!(rules, "builddir = build")?;
     write!(
         rules,
         r#"extraargs = --cap-lints allow -C debuginfo=2 --cfg 'feature="default"' --cfg 'feature="std"'"#
@@ -214,7 +215,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &rules,
                 pkg_name,
                 &version,
-                &format!("build/{}", norm_pkg_name),
+                &format!("$builddir/{}", norm_pkg_name),
                 &["src/main.rs"],
                 &[&args.lockfile],
                 "build",
@@ -224,7 +225,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &node.dependencies,
             )?;
 
-            writeln!(rules, "default build/{}", norm_pkg_name)?;
+            writeln!(rules, "default $builddir/{}\n", norm_pkg_name)?;
         } else {
             // All the dependencies
 
@@ -259,13 +260,13 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 pkg_name,
                 &version,
                 &format!(
-                    "build/deps/lib{pkg}.{suffix} build/deps/lib{pkg}.rmeta",
+                    "$builddir/deps/lib{pkg}.{suffix} $builddir/deps/lib{pkg}.rmeta",
                     pkg = norm_pkg_name,
                     suffix = suffix,
                 ),
                 &[&entry_path],
                 &[],
-                "build/deps",
+                "$builddir/deps",
                 &crate_type,
                 &edition(manifest.package.unwrap().edition),
                 "dep-info,metadata,link",
@@ -335,7 +336,7 @@ fn build_rule<W: Write>(
         let suffix = if dep.name.as_str() == "serde_derive" { "dylib" } else { "rlib" };
         write!(
             out,
-            "build/deps/lib{}.{} ",
+            "$builddir/deps/lib{}.{} ",
             normalize_crate_name(dep.name.as_str()),
             suffix
         )?;
@@ -346,7 +347,7 @@ fn build_rule<W: Write>(
     writeln!(out, "  version = {}", version)?;
     write!(
         out,
-        "  args = --crate-type {} --edition {} -L dependency=build/deps ",
+        "  args = --crate-type {} --edition {} -L dependency=$builddir/deps ",
         crate_type, edition,
     )?;
 
@@ -390,7 +391,7 @@ fn build_rule<W: Write>(
         let suffix = if dep.name.as_str() == "serde_derive" { "dylib" } else { "rlib" };
         write!(
             out,
-            "--extern {}=build/deps/lib{}.{} ",
+            "--extern {}=$builddir/deps/lib{}.{} ",
             normalize_crate_name(dep.name.as_str()),
             normalize_crate_name(dep.name.as_str()),
             suffix,
