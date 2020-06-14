@@ -6,6 +6,15 @@ edition = "2018"
 description = "Build your project."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/badboy/bygge"
+include = [
+  "/README.md",
+  "/LICENSE-*",
+  "/src",
+  "/examples",
+  "/tests",
+  "/Cargo.toml",
+  "/manual.ninja",
+]
 
 [dependencies]
 pico-args = "0.3.1"
