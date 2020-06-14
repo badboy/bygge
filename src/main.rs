@@ -40,7 +40,7 @@ rule cargo-fetch
   description = CARGO $in
 
 rule rustc
-  command = CARGO_PKG_VERSION="$version" CARGO_PKG_NAME="$name" rustc --crate-name $name $in --emit=$emit --out-dir $outdir $extraargs $args && sed -i '' '/\.d:/g' $depfile
+  command = CARGO_PKG_VERSION="$version" CARGO_PKG_NAME="$name" rustc --crate-name $name $in --emit=$emit --out-dir $outdir $extraargs $args && sed -i.bak '/\.d:/g' $depfile
   description = RUSTC $out
   depfile = $depfile
   deps = gcc
