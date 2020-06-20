@@ -6,10 +6,11 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
     process::{self, Command},
+    rc::Rc,
 };
 
 use cargo_lock::{Dependency, Lockfile};
-use cargo_toml::Manifest;
+use cargo_toml::{Manifest, Edition};
 use petgraph::visit::Bfs;
 
 macro_rules! log {
@@ -205,77 +206,32 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut crate_type_cache = HashMap::new();
 
-    // First type to gain knowledge about all dependencies.
+    let mut crates = Vec::new();
+    let mut crate_cache = HashMap::new();
+
+    // First pass: collect all information about all crates.
     let mut bfs = Bfs::new(&graph, root_idx);
     while let Some(nx) = bfs.next(&graph) {
         let node = &graph[nx];
-        let pkg_name = node.name.as_str();
-        let norm_pkg_name = normalize_crate_name(pkg_name);
-        let version = format!("{}", node.version);
 
-        if nx == root_idx {
+        let pkg_name = node.name.as_str();
+        let version = format!("{}", node.version);
+        let dependencies = node.dependencies.clone();
+
+        let c = if nx == root_idx {
             crate_type_cache.insert(format!("{}:{}", pkg_name, node.version), CrateType::Bin);
-        } else {
-            if skip_dep(pkg_name) {
-                continue;
+
+            Crate {
+                name: pkg_name.into(),
+                normalized_name: normalize_crate_name(pkg_name),
+                version: format!("{}", node.version),
+                crate_type: CrateType::Bin,
+                entry_path: "src/main.rs".into(),
+                edition: Edition::E2018,
+                implicit_deps: vec![args.lockfile.clone()],
+                dependencies,
             }
-
-            let crate_path = registry_path()?.join(&format!(
-                "{pkg}-{version}",
-                pkg = pkg_name,
-                version = version,
-            ));
-            let toml_path = crate_path.join("Cargo.toml");
-            let mut f = File::open(&toml_path)?;
-            let mut buffer = Vec::new();
-            f.read_to_end(&mut buffer)?;
-            let manifest = Manifest::from_slice(&buffer)?;
-            let (entry, proc_macro) = manifest
-                .lib
-                .map(|lib| {
-                    (
-                        lib.path.unwrap_or_else(|| "src/lib.rs".into()),
-                        lib.proc_macro,
-                    )
-                })
-                .unwrap_or_else(|| ("src/lib.rs".into(), false));
-            let crate_type = if proc_macro {
-                CrateType::ProcMacro
-            } else {
-                CrateType::Lib
-            };
-            crate_type_cache.insert(format!("{}:{}", pkg_name, version), crate_type);
-        }
-    }
-
-    let mut bfs = Bfs::new(&graph, root_idx);
-    while let Some(nx) = bfs.next(&graph) {
-        let node = &graph[nx];
-        let pkg_name = node.name.as_str();
-        let norm_pkg_name = normalize_crate_name(pkg_name);
-        let version = format!("{}", node.version);
-
-        // The main target we try to build.
-        if nx == root_idx {
-            build_rule(
-                &crate_type_cache,
-                &rules,
-                pkg_name,
-                &version,
-                &format!("$builddir/{}", norm_pkg_name),
-                &["src/main.rs"],
-                &[&args.lockfile],
-                "build",
-                CrateType::Bin,
-                "2018",
-                "dep-info,link",
-                &node.dependencies,
-            )?;
-
-            writeln!(rules, "default $builddir/{}\n", norm_pkg_name)?;
         } else {
-            // All the dependencies
-
             if skip_dep(pkg_name) {
                 continue;
             }
@@ -306,25 +262,46 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 CrateType::Lib
             };
+            let edition = manifest.package.unwrap().edition;
 
-            build_rule(
-                &crate_type_cache,
-                &rules,
-                pkg_name,
-                &version,
-                &format!(
-                    "$builddir/deps/lib{pkg}.{suffix} $builddir/deps/lib{pkg}.rmeta",
-                    pkg = norm_pkg_name,
-                    suffix = crate_type.suffix(),
-                ),
-                &[&entry_path],
-                &[],
-                "$builddir/deps",
+            crate_type_cache.insert(format!("{}:{}", pkg_name, version), crate_type);
+
+            Crate {
+                name: pkg_name.into(),
+                normalized_name: normalize_crate_name(pkg_name),
+                version: format!("{}", node.version),
                 crate_type,
-                &edition(manifest.package.unwrap().edition),
-                "dep-info,metadata,link",
-                &node.dependencies,
-            )?;
+                entry_path,
+                edition,
+                implicit_deps: vec![],
+                dependencies,
+            }
+        };
+
+        let c = Rc::new(c);
+        crates.push(c.clone());
+        crate_cache.insert(format!("{}:{}", c.name, c.version), c);
+    }
+
+    // Second pass: Write out the rules.
+    for pkg in crates {
+        build_rule(
+            &crate_cache,
+            &rules,
+            &pkg.name,
+            &pkg.version,
+            &pkg.target(),
+            &[&pkg.entry_path],
+            &pkg.implicit_deps,
+            &pkg.outdir(),
+            pkg.crate_type,
+            pkg.edition,
+            &pkg.crate_type.emit(),
+            &pkg.dependencies,
+        )?;
+
+        if let CrateType::Bin = pkg.crate_type {
+            writeln!(rules, "default $builddir/{}\n", &pkg.normalized_name)?;
         }
     }
 
@@ -360,16 +337,16 @@ fn command(verbose: bool, cmdline: &[&str]) -> Result<(), Box<dyn std::error::Er
 }
 
 fn build_rule<W: Write>(
-    crate_type_cache: &HashMap<String, CrateType>,
+    crate_cache: &HashMap<String, Rc<Crate>>,
     mut out: W,
     pkg_name: &str,
     version: &str,
     target: &str,
     deps: &[&str],
-    implicit_deps: &[&str],
+    implicit_deps: &[String],
     outdir: &str,
     crate_type: CrateType,
-    edition: &str,
+    edition: Edition,
     emit: &str,
     dependencies: &[Dependency],
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -387,9 +364,14 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let dep_type = crate_type_cache
+        let dep_type = crate_cache
             .get(&format!("{}:{}", dep.name.as_str(), dep.version))
-            .expect(&format!("No crate-type known for {}:{}", dep.name.as_str(), dep.version));
+            .expect(&format!(
+                "No crate-type known for {}:{}",
+                dep.name.as_str(),
+                dep.version
+            ))
+            .crate_type;
         write!(
             out,
             "$builddir/deps/lib{}.{} ",
@@ -404,7 +386,8 @@ fn build_rule<W: Write>(
     write!(
         out,
         "  args = --crate-type {} --edition {} -L dependency=$builddir/deps ",
-        crate_type, edition,
+        crate_type,
+        edition_str(edition),
     )?;
 
     // We don't handle features yet,
@@ -453,9 +436,14 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let dep_type = crate_type_cache
+        let dep_type = crate_cache
             .get(&format!("{}:{}", dep.name.as_str(), dep.version))
-            .expect(&format!("No crate-type known for {}", dep.name.as_str()));
+            .expect(&format!(
+                "No crate-type known for {}:{}",
+                dep.name.as_str(),
+                dep.version
+            ))
+            .crate_type;
         write!(
             out,
             "--extern {}=$builddir/deps/lib{}.{} ",
@@ -477,8 +465,8 @@ fn normalize_crate_name(crate_name: &str) -> String {
     crate_name.replace('-', "_")
 }
 
-fn edition(ed: cargo_toml::Edition) -> &'static str {
-    use cargo_toml::Edition::*;
+fn edition_str(ed: Edition) -> &'static str {
+    use Edition::*;
     match ed {
         E2018 => "2018",
         _ => "2015",
@@ -509,6 +497,13 @@ impl CrateType {
             _ => "rlib",
         }
     }
+
+    fn emit(&self) -> &'static str {
+        match self {
+            Self::Bin => "dep-info,link",
+            _ => "dep-info,metadata,link",
+        }
+    }
 }
 
 impl fmt::Display for CrateType {
@@ -520,6 +515,37 @@ impl fmt::Display for CrateType {
             ProcMacro => "proc-macro",
         };
         write!(f, "{}", v)
+    }
+}
+
+struct Crate {
+    name: String,
+    normalized_name: String,
+    version: String,
+    crate_type: CrateType,
+    entry_path: String,
+    edition: Edition,
+    implicit_deps: Vec<String>,
+    dependencies: Vec<Dependency>,
+}
+
+impl Crate {
+    fn target(&self) -> String {
+        match self.crate_type {
+            CrateType::Bin => format!("$builddir/{}", self.normalized_name),
+            _ => format!(
+                "$builddir/deps/lib{pkg}.{suffix} $builddir/deps/lib{pkg}.rmeta",
+                pkg = self.normalized_name,
+                suffix = self.crate_type.suffix(),
+            ),
+        }
+    }
+
+    fn outdir(&self) -> &'static str {
+        match self.crate_type {
+            CrateType::Bin => "$builddir",
+            _ => "$builddir/deps",
+        }
     }
 }
 
