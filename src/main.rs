@@ -219,7 +219,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &["src/main.rs"],
                 &[&args.lockfile],
                 "build",
-                "bin",
+                CrateType::Bin,
                 "2018",
                 "dep-info,link",
                 &node.dependencies,
@@ -245,14 +245,19 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             let manifest = Manifest::from_slice(&buffer)?;
             let (entry, proc_macro) = manifest
                 .lib
-                .map(|lib| (lib.path.unwrap_or_else(|| "src/lib.rs".into()), lib.proc_macro))
+                .map(|lib| {
+                    (
+                        lib.path.unwrap_or_else(|| "src/lib.rs".into()),
+                        lib.proc_macro,
+                    )
+                })
                 .unwrap_or_else(|| ("src/lib.rs".into(), false));
             let entry_path = crate_path.join(entry);
             let entry_path = entry_path.display().to_string();
             let crate_type = if proc_macro {
-                "proc-macro"
+                CrateType::ProcMacro
             } else {
-                "lib"
+                CrateType::Lib
             };
 
             build_rule(
@@ -262,12 +267,12 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 &format!(
                     "$builddir/deps/lib{pkg}.{suffix} $builddir/deps/lib{pkg}.rmeta",
                     pkg = norm_pkg_name,
-                    suffix = crate_type_suffix(crate_type),
+                    suffix = crate_type.suffix(),
                 ),
                 &[&entry_path],
                 &[],
                 "$builddir/deps",
-                &crate_type,
+                crate_type,
                 &edition(manifest.package.unwrap().edition),
                 "dep-info,metadata,link",
                 &node.dependencies,
@@ -314,7 +319,7 @@ fn build_rule<W: Write>(
     deps: &[&str],
     implicit_deps: &[&str],
     outdir: &str,
-    crate_type: &str,
+    crate_type: CrateType,
     edition: &str,
     emit: &str,
     dependencies: &[Dependency],
@@ -333,12 +338,16 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let dep_type = if dep.name.as_str() == "serde_derive" { "proc-macro" } else { "lib" };
+        let dep_type = if dep.name.as_str() == "serde_derive" {
+            CrateType::ProcMacro
+        } else {
+            CrateType::Lib
+        };
         write!(
             out,
             "$builddir/deps/lib{}.{} ",
             normalize_crate_name(dep.name.as_str()),
-            crate_type_suffix(dep_type)
+            dep_type.suffix()
         )?;
     }
 
@@ -361,7 +370,10 @@ fn build_rule<W: Write>(
     }
 
     if norm_pkg_name == "syn" {
-        write!(out, r#"--cfg 'feature="clone-impls"' --cfg 'feature="default"' --cfg 'feature="derive"' --cfg 'feature="parsing"' --cfg 'feature="printing"' --cfg 'feature="proc-macro"' --cfg 'feature="quote"' --cfg 'feature="visit"' "#)?;
+        write!(
+            out,
+            r#"--cfg 'feature="clone-impls"' --cfg 'feature="default"' --cfg 'feature="derive"' --cfg 'feature="parsing"' --cfg 'feature="printing"' --cfg 'feature="proc-macro"' --cfg 'feature="quote"' --cfg 'feature="visit"' "#
+        )?;
     }
 
     if norm_pkg_name == "indexmap" {
@@ -373,11 +385,17 @@ fn build_rule<W: Write>(
     }
 
     if norm_pkg_name == "cargo_lock" {
-        write!(out, r#"--cfg 'feature="dependency-tree"' --cfg 'feature="petgraph"' "#)?;
+        write!(
+            out,
+            r#"--cfg 'feature="dependency-tree"' --cfg 'feature="petgraph"' "#
+        )?;
     }
 
     if norm_pkg_name == "serde" {
-        write!(out, r#"--cfg 'feature="serde_derive"' --cfg ops_bound --cfg core_reverse --cfg de_boxed_c_str --cfg de_boxed_path --cfg de_rc_dst --cfg core_duration --cfg integer128 --cfg range_inclusive --cfg num_nonzero --cfg core_try_from --cfg num_nonzero_signed --cfg std_atomic64 --cfg std_atomic "#)?;
+        write!(
+            out,
+            r#"--cfg 'feature="serde_derive"' --cfg ops_bound --cfg core_reverse --cfg de_boxed_c_str --cfg de_boxed_path --cfg de_rc_dst --cfg core_duration --cfg integer128 --cfg range_inclusive --cfg num_nonzero --cfg core_try_from --cfg num_nonzero_signed --cfg std_atomic64 --cfg std_atomic "#
+        )?;
     }
 
     if norm_pkg_name == "semver" {
@@ -388,13 +406,17 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let dep_type = if dep.name.as_str() == "serde_derive" { "proc-macro" } else { "lib" };
+        let dep_type = if dep.name.as_str() == "serde_derive" {
+            CrateType::ProcMacro
+        } else {
+            CrateType::Lib
+        };
         write!(
             out,
             "--extern {}=$builddir/deps/lib{}.{} ",
             normalize_crate_name(dep.name.as_str()),
             normalize_crate_name(dep.name.as_str()),
-            crate_type_suffix(dep_type),
+            dep_type.suffix(),
         )?;
     }
     writeln!(out)?;
@@ -418,19 +440,41 @@ fn edition(ed: cargo_toml::Edition) -> &'static str {
     }
 }
 
-fn crate_type_suffix(crate_type: &str) -> &'static str {
-    match crate_type {
-        "proc-macro" => {
-            if cfg!(target_os = "macos") {
-                "dylib"
-            } else if cfg!(target_os = "windows") {
-                "dll"
-            } else {
-                // Fallback (and default for Unix)
-                "so"
+#[derive(Clone, Copy, Debug)]
+enum CrateType {
+    Bin,
+    Lib,
+    ProcMacro,
+}
+
+impl CrateType {
+    fn suffix(&self) -> &'static str {
+        match self {
+            Self::Bin => "",
+            Self::ProcMacro => {
+                if cfg!(target_os = "macos") {
+                    "dylib"
+                } else if cfg!(target_os = "windows") {
+                    "dll"
+                } else {
+                    // Fallback (and default for Unix)
+                    "so"
+                }
             }
+            _ => "rlib",
         }
-        _ => "rlib",
+    }
+}
+
+impl fmt::Display for CrateType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use CrateType::*;
+        let v = match self {
+            Bin => "bin",
+            Lib => "lib",
+            ProcMacro => "proc-macro",
+        };
+        write!(f, "{}", v)
     }
 }
 
