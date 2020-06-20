@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     convert::TryFrom,
     fmt,
     fs::File,
@@ -202,6 +203,51 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .find(|(dep, _)| dep.matches(root_package))
         .unwrap();
 
+    let mut crate_type_cache = HashMap::new();
+
+    // First type to gain knowledge about all dependencies.
+    let mut bfs = Bfs::new(&graph, root_idx);
+    while let Some(nx) = bfs.next(&graph) {
+        let node = &graph[nx];
+        let pkg_name = node.name.as_str();
+        let norm_pkg_name = normalize_crate_name(pkg_name);
+        let version = format!("{}", node.version);
+
+        if nx == root_idx {
+            crate_type_cache.insert(format!("{}:{}", pkg_name, node.version), CrateType::Bin);
+        } else {
+            if skip_dep(pkg_name) {
+                continue;
+            }
+
+            let crate_path = registry_path()?.join(&format!(
+                "{pkg}-{version}",
+                pkg = pkg_name,
+                version = version,
+            ));
+            let toml_path = crate_path.join("Cargo.toml");
+            let mut f = File::open(&toml_path)?;
+            let mut buffer = Vec::new();
+            f.read_to_end(&mut buffer)?;
+            let manifest = Manifest::from_slice(&buffer)?;
+            let (entry, proc_macro) = manifest
+                .lib
+                .map(|lib| {
+                    (
+                        lib.path.unwrap_or_else(|| "src/lib.rs".into()),
+                        lib.proc_macro,
+                    )
+                })
+                .unwrap_or_else(|| ("src/lib.rs".into(), false));
+            let crate_type = if proc_macro {
+                CrateType::ProcMacro
+            } else {
+                CrateType::Lib
+            };
+            crate_type_cache.insert(format!("{}:{}", pkg_name, version), crate_type);
+        }
+    }
+
     let mut bfs = Bfs::new(&graph, root_idx);
     while let Some(nx) = bfs.next(&graph) {
         let node = &graph[nx];
@@ -212,6 +258,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         // The main target we try to build.
         if nx == root_idx {
             build_rule(
+                &crate_type_cache,
                 &rules,
                 pkg_name,
                 &version,
@@ -261,6 +308,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             };
 
             build_rule(
+                &crate_type_cache,
                 &rules,
                 pkg_name,
                 &version,
@@ -312,6 +360,7 @@ fn command(verbose: bool, cmdline: &[&str]) -> Result<(), Box<dyn std::error::Er
 }
 
 fn build_rule<W: Write>(
+    crate_type_cache: &HashMap<String, CrateType>,
     mut out: W,
     pkg_name: &str,
     version: &str,
@@ -338,11 +387,9 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let dep_type = if dep.name.as_str() == "serde_derive" {
-            CrateType::ProcMacro
-        } else {
-            CrateType::Lib
-        };
+        let dep_type = crate_type_cache
+            .get(&format!("{}:{}", dep.name.as_str(), dep.version))
+            .expect(&format!("No crate-type known for {}:{}", dep.name.as_str(), dep.version));
         write!(
             out,
             "$builddir/deps/lib{}.{} ",
@@ -406,11 +453,9 @@ fn build_rule<W: Write>(
         if skip_dep(dep.name.as_str()) {
             continue;
         }
-        let dep_type = if dep.name.as_str() == "serde_derive" {
-            CrateType::ProcMacro
-        } else {
-            CrateType::Lib
-        };
+        let dep_type = crate_type_cache
+            .get(&format!("{}:{}", dep.name.as_str(), dep.version))
+            .expect(&format!("No crate-type known for {}", dep.name.as_str()));
         write!(
             out,
             "--extern {}=$builddir/deps/lib{}.{} ",
