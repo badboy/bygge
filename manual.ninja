@@ -16,7 +16,7 @@ build Cargo.lock: cargo-fetch Cargo.toml
 
 build $builddir/bygge: rustc src/main.rs | Cargo.lock $builddir/deps/libcargo_lock.rlib $builddir/deps/libcargo_metadata.rlib $builddir/deps/libcargo_toml.rlib $builddir/deps/libdirs.rlib $builddir/deps/libpetgraph.rlib $builddir/deps/libpico_args.rlib 
   name = bygge
-  version = 0.1.0
+  version = 0.2.0
   args = --crate-type bin --edition 2018 -L dependency=$builddir/deps --extern cargo_lock=$builddir/deps/libcargo_lock.rlib --extern cargo_metadata=$builddir/deps/libcargo_metadata.rlib --extern cargo_toml=$builddir/deps/libcargo_toml.rlib --extern dirs=$builddir/deps/libdirs.rlib --extern petgraph=$builddir/deps/libpetgraph.rlib --extern pico_args=$builddir/deps/libpico_args.rlib 
   outdir = $builddir
   emit = dep-info,link
