@@ -436,7 +436,7 @@ fn crate_type_suffix(crate_type: &str) -> &'static str {
 
 fn skip_dep(name: &str) -> bool {
     // Skipping some crates we know we can't build
-    name.contains("winapi") || name.contains("redox")
+    name.contains("redox")
 }
 
 fn usage() {
