@@ -204,8 +204,6 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .find(|(dep, _)| dep.matches(root_package))
         .unwrap();
 
-    let mut crate_type_cache = HashMap::new();
-
     let mut crates = Vec::new();
     let mut crate_cache = HashMap::new();
 
@@ -219,8 +217,6 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let dependencies = node.dependencies.clone();
 
         let c = if nx == root_idx {
-            crate_type_cache.insert(format!("{}:{}", pkg_name, node.version), CrateType::Bin);
-
             Crate {
                 name: pkg_name.into(),
                 normalized_name: normalize_crate_name(pkg_name),
@@ -263,8 +259,6 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 CrateType::Lib
             };
             let edition = manifest.package.unwrap().edition;
-
-            crate_type_cache.insert(format!("{}:{}", pkg_name, version), crate_type);
 
             Crate {
                 name: pkg_name.into(),
