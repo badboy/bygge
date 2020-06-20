@@ -356,7 +356,7 @@ fn build_rule<W: Write>(
     if norm_pkg_name == "libc" {
         write!(
             out,
-            r#"--cfg 'feature="default"' --cfg 'feature="extra_traits"' --cfg 'feature="std"' --cfg freebsd11 --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
+            r#"--cfg 'feature="default"' --cfg 'feature="std"' --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
         )?;
     }
 
