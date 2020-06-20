@@ -288,16 +288,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         build_rule(
             &crate_cache,
             &rules,
-            &pkg.name,
-            &pkg.version,
-            &pkg.target(),
-            &[&pkg.entry_path],
-            &pkg.implicit_deps,
-            &pkg.outdir(),
-            pkg.crate_type,
-            pkg.edition,
-            &pkg.crate_type.emit(),
-            &pkg.dependencies,
+            &pkg
         )?;
 
         if let CrateType::Bin = pkg.crate_type {
@@ -339,28 +330,17 @@ fn command(verbose: bool, cmdline: &[&str]) -> Result<(), Box<dyn std::error::Er
 fn build_rule<W: Write>(
     crate_cache: &HashMap<String, Rc<Crate>>,
     mut out: W,
-    pkg_name: &str,
-    version: &str,
-    target: &str,
-    deps: &[&str],
-    implicit_deps: &[String],
-    outdir: &str,
-    crate_type: CrateType,
-    edition: Edition,
-    emit: &str,
-    dependencies: &[Dependency],
+    pkg: &Crate,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let norm_pkg_name = normalize_crate_name(pkg_name);
-
     write!(
         out,
         "build {}: rustc {} | {} ",
-        target,
-        deps.join(" "),
-        implicit_deps.join(" ")
+        pkg.target(),
+        pkg.entry_path,
+        pkg.implicit_deps.join(" ")
     )?;
 
-    for dep in dependencies {
+    for dep in &pkg.dependencies {
         if skip_dep(dep.name.as_str()) {
             continue;
         }
@@ -381,58 +361,58 @@ fn build_rule<W: Write>(
     }
 
     writeln!(out)?;
-    writeln!(out, "  name = {}", norm_pkg_name)?;
-    writeln!(out, "  version = {}", version)?;
+    writeln!(out, "  name = {}", pkg.normalized_name)?;
+    writeln!(out, "  version = {}", pkg.version)?;
     write!(
         out,
         "  args = --crate-type {} --edition {} -L dependency=$builddir/deps ",
-        crate_type,
-        edition_str(edition),
+        pkg.crate_type,
+        edition_str(pkg.edition),
     )?;
 
     // We don't handle features yet,
     // so let's hackily add some features to make libc compiled correctly.
-    if norm_pkg_name == "libc" {
+    if pkg.normalized_name == "libc" {
         write!(
             out,
             r#"--cfg 'feature="default"' --cfg 'feature="std"' --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
         )?;
     }
 
-    if norm_pkg_name == "syn" {
+    if pkg.normalized_name == "syn" {
         write!(
             out,
             r#"--cfg 'feature="clone-impls"' --cfg 'feature="default"' --cfg 'feature="derive"' --cfg 'feature="parsing"' --cfg 'feature="printing"' --cfg 'feature="proc-macro"' --cfg 'feature="quote"' --cfg 'feature="visit"' "#
         )?;
     }
 
-    if norm_pkg_name == "indexmap" {
+    if pkg.normalized_name == "indexmap" {
         write!(out, "--cfg has_std ")?;
     }
 
-    if norm_pkg_name == "proc_macro2" {
+    if pkg.normalized_name == "proc_macro2" {
         write!(out, "--cfg use_proc_macro --cfg wrap_proc_macro ")?;
     }
 
-    if norm_pkg_name == "cargo_lock" {
+    if pkg.normalized_name == "cargo_lock" {
         write!(
             out,
             r#"--cfg 'feature="dependency-tree"' --cfg 'feature="petgraph"' "#
         )?;
     }
 
-    if norm_pkg_name == "serde" {
+    if pkg.normalized_name == "serde" {
         write!(
             out,
             r#"--cfg 'feature="serde_derive"' --cfg ops_bound --cfg core_reverse --cfg de_boxed_c_str --cfg de_boxed_path --cfg de_rc_dst --cfg core_duration --cfg integer128 --cfg range_inclusive --cfg num_nonzero --cfg core_try_from --cfg num_nonzero_signed --cfg std_atomic64 --cfg std_atomic "#
         )?;
     }
 
-    if norm_pkg_name == "semver" {
+    if pkg.normalized_name == "semver" {
         write!(out, r#"--cfg 'feature="serde"' "#)?;
     }
 
-    for dep in dependencies {
+    for dep in &pkg.dependencies {
         if skip_dep(dep.name.as_str()) {
             continue;
         }
@@ -453,9 +433,9 @@ fn build_rule<W: Write>(
         )?;
     }
     writeln!(out)?;
-    writeln!(out, "  outdir = {}", outdir)?;
-    writeln!(out, "  emit = {}", emit)?;
-    writeln!(out, "  depfile = {}/{}.d", outdir, norm_pkg_name)?;
+    writeln!(out, "  outdir = {}", pkg.outdir())?;
+    writeln!(out, "  emit = {}", pkg.crate_type.emit())?;
+    writeln!(out, "  depfile = {}/{}.d", pkg.outdir(), pkg.normalized_name)?;
     writeln!(out)?;
 
     Ok(())
