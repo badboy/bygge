@@ -10,7 +10,8 @@ use std::{
 };
 
 use cargo_lock::{Dependency, Lockfile};
-use cargo_toml::{Manifest, Edition};
+use cargo_metadata::MetadataCommand;
+use cargo_toml::{Edition, Manifest};
 use petgraph::visit::Bfs;
 
 macro_rules! log {
@@ -164,10 +165,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let mut rules = File::create(&args.ninja_file)?;
     writeln!(rules, "{}", PREAMBLE)?;
     writeln!(rules, "builddir = build")?;
-    write!(
-        rules,
-        r#"extraargs = --cap-lints allow -C debuginfo=2 --cfg 'feature="default"' --cfg 'feature="std"'"#
-    )?;
+    write!(rules, r#"extraargs = --cap-lints allow -C debuginfo=2 "#)?;
 
     if args.release {
         vlog!(args.verbose, "Enabling optimizations for build artifacts");
@@ -184,6 +182,33 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let package = manifest.package.unwrap();
     let pkg_name = package.name;
     log!("Package: {}", pkg_name);
+
+    let mut crates = Vec::new();
+    let mut crate_cache = HashMap::new();
+    let mut crate_features_cache = HashMap::new();
+
+    let mut cmd = MetadataCommand::new();
+    cmd.manifest_path(&args.manifest_path);
+    let metadata = cmd.exec()?;
+    let resolve = metadata.resolve.unwrap();
+    let packages = metadata.packages;
+
+    for node in resolve.nodes {
+        let id = node.id.clone();
+        let package = match packages.iter().find(|p| p.id == id) {
+            Some(package) => package,
+            None => continue,
+        };
+        let features: Vec<_> = node.features.iter().map(|f| f.to_string()).collect();
+        crate_features_cache.insert(
+            format!(
+                "{}:{}",
+                normalize_crate_name(&package.name),
+                package.version
+            ),
+            features,
+        );
+    }
 
     let root_package = lockfile
         .packages
@@ -204,9 +229,6 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         .find(|(dep, _)| dep.matches(root_package))
         .unwrap();
 
-    let mut crates = Vec::new();
-    let mut crate_cache = HashMap::new();
-
     // First pass: collect all information about all crates.
     let mut bfs = Bfs::new(&graph, root_idx);
     while let Some(nx) = bfs.next(&graph) {
@@ -226,6 +248,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 edition: Edition::E2018,
                 implicit_deps: vec![args.lockfile.clone()],
                 dependencies,
+                enabled_features: vec![],
             }
         } else {
             if skip_dep(pkg_name) {
@@ -259,16 +282,23 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 CrateType::Lib
             };
             let edition = manifest.package.unwrap().edition;
+            let normalized_name = normalize_crate_name(pkg_name);
+            let version = format!("{}", node.version);
+            let enabled_features = crate_features_cache
+                .get(&format!("{}:{}", normalized_name, version))
+                .cloned()
+                .unwrap_or_default();
 
             Crate {
                 name: pkg_name.into(),
-                normalized_name: normalize_crate_name(pkg_name),
-                version: format!("{}", node.version),
+                normalized_name,
+                version,
                 crate_type,
                 entry_path,
                 edition,
                 implicit_deps: vec![],
                 dependencies,
+                enabled_features,
             }
         };
 
@@ -279,11 +309,7 @@ fn create(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     // Second pass: Write out the rules.
     for pkg in crates {
-        build_rule(
-            &crate_cache,
-            &rules,
-            &pkg
-        )?;
+        build_rule(&crate_cache, &rules, &pkg)?;
 
         if let CrateType::Bin = pkg.crate_type {
             writeln!(rules, "default $builddir/{}\n", &pkg.normalized_name)?;
@@ -364,19 +390,16 @@ fn build_rule<W: Write>(
         edition_str(pkg.edition),
     )?;
 
-    // We don't handle features yet,
-    // so let's hackily add some features to make libc compiled correctly.
+    for feature in &pkg.enabled_features {
+        write!(out, "--cfg 'feature=\"{}\"' ", feature)?;
+    }
+
+    // We don't handle build.rs yet,
+    // so let's hackily add some cfgs to make libc and others compile correctly.
     if pkg.normalized_name == "libc" {
         write!(
             out,
-            r#"--cfg 'feature="default"' --cfg 'feature="std"' --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
-        )?;
-    }
-
-    if pkg.normalized_name == "syn" {
-        write!(
-            out,
-            r#"--cfg 'feature="clone-impls"' --cfg 'feature="default"' --cfg 'feature="derive"' --cfg 'feature="parsing"' --cfg 'feature="printing"' --cfg 'feature="proc-macro"' --cfg 'feature="quote"' --cfg 'feature="visit"' "#
+            r#"--cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN "#
         )?;
     }
 
@@ -388,22 +411,11 @@ fn build_rule<W: Write>(
         write!(out, "--cfg use_proc_macro --cfg wrap_proc_macro ")?;
     }
 
-    if pkg.normalized_name == "cargo_lock" {
-        write!(
-            out,
-            r#"--cfg 'feature="dependency-tree"' --cfg 'feature="petgraph"' "#
-        )?;
-    }
-
     if pkg.normalized_name == "serde" {
         write!(
             out,
-            r#"--cfg 'feature="serde_derive"' --cfg ops_bound --cfg core_reverse --cfg de_boxed_c_str --cfg de_boxed_path --cfg de_rc_dst --cfg core_duration --cfg integer128 --cfg range_inclusive --cfg num_nonzero --cfg core_try_from --cfg num_nonzero_signed --cfg std_atomic64 --cfg std_atomic "#
+            r#"--cfg ops_bound --cfg core_reverse --cfg de_boxed_c_str --cfg de_boxed_path --cfg de_rc_dst --cfg core_duration --cfg integer128 --cfg range_inclusive --cfg num_nonzero --cfg core_try_from --cfg num_nonzero_signed --cfg std_atomic64 --cfg std_atomic "#
         )?;
-    }
-
-    if pkg.normalized_name == "semver" {
-        write!(out, r#"--cfg 'feature="serde"' "#)?;
     }
 
     for dep in &pkg.dependencies {
@@ -429,7 +441,12 @@ fn build_rule<W: Write>(
     writeln!(out)?;
     writeln!(out, "  outdir = {}", pkg.outdir())?;
     writeln!(out, "  emit = {}", pkg.crate_type.emit())?;
-    writeln!(out, "  depfile = {}/{}.d", pkg.outdir(), pkg.normalized_name)?;
+    writeln!(
+        out,
+        "  depfile = {}/{}.d",
+        pkg.outdir(),
+        pkg.normalized_name
+    )?;
     writeln!(out)?;
 
     Ok(())
@@ -501,6 +518,7 @@ struct Crate {
     edition: Edition,
     implicit_deps: Vec<String>,
     dependencies: Vec<Dependency>,
+    enabled_features: Vec<String>,
 }
 
 impl Crate {
