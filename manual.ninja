@@ -18,9 +18,9 @@ build $builddir/bygge: rustc src/main.rs | Cargo.lock $builddir/deps/libcargo_lo
   name = bygge
   version = 0.1.0
   args = --crate-type bin --edition 2018 -L dependency=$builddir/deps --extern cargo_lock=$builddir/deps/libcargo_lock.rlib --extern cargo_toml=$builddir/deps/libcargo_toml.rlib --extern dirs=$builddir/deps/libdirs.rlib --extern petgraph=$builddir/deps/libpetgraph.rlib --extern pico_args=$builddir/deps/libpico_args.rlib 
-  outdir = build
+  outdir = $builddir
   emit = dep-info,link
-  depfile = build/bygge.d
+  depfile = $builddir/bygge.d
 
 default $builddir/bygge
 
@@ -80,10 +80,10 @@ build $builddir/deps/libfixedbitset.rlib $builddir/deps/libfixedbitset.rmeta: ru
   emit = dep-info,metadata,link
   depfile = $builddir/deps/fixedbitset.d
 
-build $builddir/deps/libdirs_sys.rlib $builddir/deps/libdirs_sys.rmeta: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/dirs-sys-0.3.5/src/lib.rs |  $builddir/deps/liblibc.rlib 
+build $builddir/deps/libdirs_sys.rlib $builddir/deps/libdirs_sys.rmeta: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/dirs-sys-0.3.5/src/lib.rs |  $builddir/deps/liblibc.rlib $builddir/deps/libwinapi.rlib 
   name = dirs_sys
   version = 0.3.5
-  args = --crate-type lib --edition 2015 -L dependency=$builddir/deps --extern libc=$builddir/deps/liblibc.rlib 
+  args = --crate-type lib --edition 2015 -L dependency=$builddir/deps --extern libc=$builddir/deps/liblibc.rlib --extern winapi=$builddir/deps/libwinapi.rlib 
   outdir = $builddir/deps
   emit = dep-info,metadata,link
   depfile = $builddir/deps/dirs_sys.d
@@ -144,10 +144,18 @@ build $builddir/deps/libautocfg.rlib $builddir/deps/libautocfg.rmeta: rustc /Use
   emit = dep-info,metadata,link
   depfile = $builddir/deps/autocfg.d
 
+build $builddir/deps/libwinapi.rlib $builddir/deps/libwinapi.rmeta: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/winapi-0.3.8/src/lib.rs |  $builddir/deps/libwinapi_i686_pc_windows_gnu.rlib $builddir/deps/libwinapi_x86_64_pc_windows_gnu.rlib 
+  name = winapi
+  version = 0.3.8
+  args = --crate-type lib --edition 2015 -L dependency=$builddir/deps --extern winapi_i686_pc_windows_gnu=$builddir/deps/libwinapi_i686_pc_windows_gnu.rlib --extern winapi_x86_64_pc_windows_gnu=$builddir/deps/libwinapi_x86_64_pc_windows_gnu.rlib 
+  outdir = $builddir/deps
+  emit = dep-info,metadata,link
+  depfile = $builddir/deps/winapi.d
+
 build $builddir/deps/liblibc.rlib $builddir/deps/liblibc.rmeta: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/libc-0.2.71/src/lib.rs |  
   name = libc
   version = 0.2.71
-  args = --crate-type lib --edition 2015 -L dependency=$builddir/deps --cfg 'feature="default"' --cfg 'feature="extra_traits"' --cfg 'feature="std"' --cfg freebsd11 --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN 
+  args = --crate-type lib --edition 2015 -L dependency=$builddir/deps --cfg 'feature="default"' --cfg 'feature="std"' --cfg libc_priv_mod_use --cfg libc_union --cfg libc_const_size_of --cfg libc_align --cfg libc_core_cvoid --cfg libc_packedN 
   outdir = $builddir/deps
   emit = dep-info,metadata,link
   depfile = $builddir/deps/libc.d
@@ -207,6 +215,22 @@ build $builddir/deps/libsemver_parser.rlib $builddir/deps/libsemver_parser.rmeta
   outdir = $builddir/deps
   emit = dep-info,metadata,link
   depfile = $builddir/deps/semver_parser.d
+
+build $builddir/deps/libwinapi_x86_64_pc_windows_gnu.rlib $builddir/deps/libwinapi_x86_64_pc_windows_gnu.rmeta: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/winapi-x86_64-pc-windows-gnu-0.4.0/src/lib.rs |  
+  name = winapi_x86_64_pc_windows_gnu
+  version = 0.4.0
+  args = --crate-type lib --edition 2015 -L dependency=$builddir/deps 
+  outdir = $builddir/deps
+  emit = dep-info,metadata,link
+  depfile = $builddir/deps/winapi_x86_64_pc_windows_gnu.d
+
+build $builddir/deps/libwinapi_i686_pc_windows_gnu.rlib $builddir/deps/libwinapi_i686_pc_windows_gnu.rmeta: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/winapi-i686-pc-windows-gnu-0.4.0/src/lib.rs |  
+  name = winapi_i686_pc_windows_gnu
+  version = 0.4.0
+  args = --crate-type lib --edition 2015 -L dependency=$builddir/deps 
+  outdir = $builddir/deps
+  emit = dep-info,metadata,link
+  depfile = $builddir/deps/winapi_i686_pc_windows_gnu.d
 
 build $builddir/deps/librust_argon2.rlib $builddir/deps/librust_argon2.rmeta: rustc /Users/jrediger/.cargo/registry/src/github.com-1ecc6299db9ec823/rust-argon2-0.7.0/src/lib.rs |  $builddir/deps/libbase64.rlib $builddir/deps/libblake2b_simd.rlib $builddir/deps/libconstant_time_eq.rlib $builddir/deps/libcrossbeam_utils.rlib 
   name = rust_argon2
